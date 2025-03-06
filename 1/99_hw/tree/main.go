@@ -4,11 +4,22 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 )
 
 type FileTreeNode struct {
 	fileInfo  os.DirEntry
+	fi        os.FileInfo
 	ChildNode []FileTreeNode
+}
+
+func (node *FileTreeNode) size() (string, error) {
+	if size := node.fi.Size(); size > 0 {
+		s := int(size)
+		ans := " (" + strconv.Itoa(s) + "b)"
+		return ans, nil
+	}
+	return " (empty)", nil
 }
 
 func fillTree(path string, printFiles bool) ([]FileTreeNode, error) {
@@ -20,17 +31,21 @@ func fillTree(path string, printFiles bool) ([]FileTreeNode, error) {
 
 	var nodes []FileTreeNode
 	for _, file := range files {
+		if !printFiles && !file.IsDir() {
+			continue
+		}
+
+		fi_, _ := file.Info()
+		currNode := FileTreeNode{fileInfo: file, fi: fi_}
 
 		if file.IsDir() {
-			currNode := FileTreeNode{fileInfo: file}
 			tree, err := fillTree(path+string(os.PathSeparator)+file.Name(), printFiles)
 			if err != nil {
 				return nil, err
 			}
-
 			currNode.ChildNode = tree
-			nodes = append(nodes, currNode)
 		}
+		nodes = append(nodes, currNode)
 	}
 	return nodes, nil
 }
@@ -47,12 +62,25 @@ func printTree(out io.Writer, tree []FileTreeNode, output string) {
 			suffix = "\t"
 		}
 
-		_, err := fmt.Fprint(out, output, prefix, node.fileInfo.Name(), "\n")
+		_, err := fmt.Fprint(out, output, prefix, node.fileInfo.Name())
 		if err != nil {
 			return
 		}
 
-		printTree(out, node.ChildNode, output+suffix)
+		if !node.fileInfo.IsDir() {
+			size, _ := node.size()
+			fmt.Fprint(out, size, "\n")
+		}
+
+		if node.fileInfo.IsDir() {
+			fmt.Fprint(out, "\n")
+			printTree(out, node.ChildNode, output+suffix)
+			/*size, err_ := node.size()
+			if err_ != nil {
+				return
+			}
+			fmt.Fprint(out, " (", size, "b)", "\n")*/
+		}
 	}
 }
 
