@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 )
 
@@ -19,6 +20,50 @@ type User struct {
 	Phone    string   `json:"phone"`
 }
 
+func (u *User) UnmarshalJson(data []byte) error {
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		return err
+	}
+
+	v := reflect.ValueOf(u).Elem()
+	t := v.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		jsonKey := field.Tag.Get("json")
+		if jsonKey == "" {
+			continue
+		}
+
+		if rawValue, exists := rawMap[jsonKey]; exists {
+			fieldValue := v.Field(i)
+			if !fieldValue.CanSet() {
+				continue
+			}
+
+			switch fieldValue.Kind() {
+			case reflect.String:
+				if strVal, ok := rawValue.(string); ok {
+					fieldValue.SetString(strVal)
+				}
+			case reflect.Slice:
+				if slice, ok := rawValue.([]interface{}); ok {
+					stringSlice := make([]string, len(slice))
+					for i, v := range slice {
+						if s, ok := v.(string); ok {
+							stringSlice[i] = s
+						}
+					}
+					fieldValue.Set(reflect.ValueOf(stringSlice))
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // вам надо написать более быструю оптимальную версию этой функции
 func FastSearch(out io.Writer) {
 	file, err := os.Open(filePath) // OK
@@ -26,25 +71,19 @@ func FastSearch(out io.Writer) {
 		panic(err)
 	} // OK
 
-	var i int = 0
-
 	user := User{}
 	scanner := bufio.NewScanner(file)
 	browsers := make(map[string]bool)
 
 	fmt.Fprintln(out, "found users:")
 
+	i := 0
 	// тратит много памяти, поэтому читаем построчно через сканнер
 	for scanner.Scan() {
-		// всё ещё долгий демаршалинг
-		err := json.Unmarshal(scanner.Bytes(), &user)
-
-		if err != nil {
+		if err := user.UnmarshalJson(scanner.Bytes()); err != nil {
 			panic(err)
 		}
-		//if err := user.UnmarshalJson(scanner.Bytes()); err != nil {
-		//	panic(err)
-		//}
+
 		isAndroid := false
 		isMSIE := false
 
