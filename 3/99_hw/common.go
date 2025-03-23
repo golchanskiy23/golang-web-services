@@ -8,7 +8,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	// "log"
 )
 
 const filePath string = "./data/users.txt"
@@ -19,6 +18,7 @@ func SlowSearch(out io.Writer) {
 		panic(err)
 	}
 
+	// тратит много памяти
 	fileContents, err := ioutil.ReadAll(file)
 	if err != nil {
 		panic(err)
@@ -35,6 +35,7 @@ func SlowSearch(out io.Writer) {
 	for _, line := range lines {
 		user := make(map[string]interface{})
 		// fmt.Printf("%v %v\n", err, line)
+		// долгий демаршаллинг данных
 		err := json.Unmarshal([]byte(line), &user)
 		if err != nil {
 			panic(err)
@@ -59,6 +60,7 @@ func SlowSearch(out io.Writer) {
 				// log.Println("cant cast browser to string")
 				continue
 			}
+			// длительная проверка регулярки
 			if ok, err := regexp.MatchString("Android", browser); ok && err == nil {
 				isAndroid = true
 				notSeenBefore := true
@@ -81,6 +83,7 @@ func SlowSearch(out io.Writer) {
 				// log.Println("cant cast browser to string")
 				continue
 			}
+			// длительная проверка регулярки
 			if ok, err := regexp.MatchString("MSIE", browser); ok && err == nil {
 				isMSIE = true
 				notSeenBefore := true
