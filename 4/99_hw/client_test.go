@@ -56,7 +56,7 @@ type XMLRow struct {
 func SendError(w http.ResponseWriter, str string, status int) {
 	js, err := json.Marshal(SearchErrorResponse{str})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -67,20 +67,24 @@ func SendError(w http.ResponseWriter, str string, status int) {
 
 func SearchServer(w http.ResponseWriter, req *http.Request) {
 	if req.Header.Get("AccessToken") != ACCESS_TOKEN {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		SendError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	dataXML, _ := os.Open(DATASET)
+	dataXML, err := os.Open(DATASET)
+	if err != nil {
+		SendError(w, "cant unpack error json: %d", http.StatusBadRequest)
+		return
+	}
 
 	var (
 		data  XMLData
 		users []User
 	)
 	d, _ := io.ReadAll(dataXML)
-	err := xml.Unmarshal(d, &data)
+	err = xml.Unmarshal(d, &data)
 	if err != nil {
-		http.Error(w, "Error in xml marshaling", http.StatusBadRequest)
+		SendError(w, "cant unpack error json: %d", http.StatusBadRequest)
 		return
 	}
 
@@ -107,7 +111,7 @@ func SearchServer(w http.ResponseWriter, req *http.Request) {
 	}
 	orderBy, _ := strconv.Atoi(r.Get("order_by"))
 	if orderBy < -1 || orderBy > 1 {
-		http.Error(w, "Incorrect order", http.StatusBadRequest)
+		SendError(w, "Incorrect order", http.StatusBadRequest)
 		return
 	}
 	if orderBy != OrderByAsIs {
@@ -130,7 +134,7 @@ func SearchServer(w http.ResponseWriter, req *http.Request) {
 				return u1.Age > u2.Age
 			}
 		default:
-			SendError(w, "OrderField is invalid", http.StatusBadRequest)
+			SendError(w, "ErrorBadOrderField", http.StatusBadRequest)
 			return
 		}
 		sort.Slice(users, func(i, j int) bool {
@@ -141,24 +145,13 @@ func SearchServer(w http.ResponseWriter, req *http.Request) {
 	limit, _ := strconv.Atoi(r.Get("limit"))
 	offset, _ := strconv.Atoi(r.Get("offset"))
 	limit--
-	if limit > len(users) {
-		http.Error(w, "Incorrect up limit", http.StatusBadRequest)
-		return
-	} else if limit < 0 {
-		http.Error(w, "Impossible have a negative limit", http.StatusBadRequest)
+	if limit < 0 {
+		SendError(w, "limit must be > 0", http.StatusBadRequest)
 		return
 	}
 
 	if offset < 0 {
-		http.Error(w, "Sequence can't start with negative position", http.StatusBadRequest)
-		return
-	} else if offset > len(users) {
-		http.Error(w, "We can't miss so much elements", http.StatusBadRequest)
-		return
-	}
-
-	if offset+limit > len(users) {
-		http.Error(w, "Ending position behind the slice", http.StatusBadRequest)
+		SendError(w, "offset must be > 0", http.StatusBadRequest)
 		return
 	}
 
@@ -174,10 +167,12 @@ func SearchServer(w http.ResponseWriter, req *http.Request) {
 
 			users = users[from:to]
 		}
+	} else {
+		users = users[0:0]
 	}
 	marshal, err := json.Marshal(users)
 	if err != nil {
-		http.Error(w, "Error in json marshaling", http.StatusBadRequest)
+		SendError(w, "cant unpack error json: %d", http.StatusBadRequest)
 		return
 	}
 
@@ -227,22 +222,6 @@ func TestInvalidToken(t *testing.T) {
 	}
 }
 
-func TestInvalidOrderField(t *testing.T) {
-	ts := InitServer(ACCESS_TOKEN)
-	defer ts.Close()
-
-	_, err := ts.Client.FindUsers(SearchRequest{
-		OrderBy:    OrderByAsc,
-		OrderField: "Foo",
-	})
-
-	if err == nil {
-		t.Errorf("Empty error")
-	} else if err.Error() != "unknown bad request error: OrderField is invalid" {
-		t.Errorf("Invalid error: %v", err.Error())
-	}
-}
-
 func TestOffsetLow(t *testing.T) {
 	ts := InitServer(ACCESS_TOKEN)
 	defer ts.Close()
@@ -254,6 +233,25 @@ func TestOffsetLow(t *testing.T) {
 	if err == nil {
 		t.Errorf("Empty error")
 	} else if err.Error() != "offset must be > 0" {
+		t.Errorf("Invalid error: %v", err.Error())
+	}
+}
+
+func TestInvalidOrderField(t *testing.T) {
+	ts := InitServer(ACCESS_TOKEN)
+	defer ts.Close()
+
+	clientRequest := SearchRequest{
+		OrderBy:    OrderByAsc,
+		OrderField: "Foo",
+	}
+	_, err := ts.Client.FindUsers(clientRequest)
+
+	str := fmt.Sprintf("OrderFeld %s invalid", clientRequest.OrderField)
+
+	if err == nil {
+		t.Errorf("Empty error")
+	} else if err.Error() != str {
 		t.Errorf("Invalid error: %v", err.Error())
 	}
 }
