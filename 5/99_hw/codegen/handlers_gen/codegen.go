@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log"
 	"os"
 )
@@ -13,6 +16,15 @@ type CodeGenerator struct {
 }
 
 type ParsedFile struct {
+	PackageName string
+	ApiMethods  map[string]ApiMethod
+	ApiStructs  map[string]ApiStruct
+}
+
+type ApiMethod struct {
+}
+
+type ApiStruct struct {
 }
 
 func main() {
@@ -34,13 +46,45 @@ func main() {
 }
 
 func NewParser() *Parser {
-	return nil
+	return &Parser{}
+}
+
+func (p *Parser) ParseFunc(file *ParsedFile, decl ast.Decl) {
+
+}
+
+func (p *Parser) ParseStruct(file *ParsedFile, tt *ast.StructType) {
+
 }
 
 func (p *Parser) Parse(inFile string) (*ParsedFile, error) {
+	fs := token.NewFileSet()
+	nodes, err := parser.ParseFile(fs, inFile, nil, parser.ParseComments)
+	if err != nil {
+		fmt.Errorf("parsing error: %s\n", err)
+	}
 
-	//fmt.Print(parse)
-	return nil, nil
+	result := &ParsedFile{
+		PackageName: nodes.Name.Name,
+		ApiMethods:  make(map[string]ApiMethod),
+		ApiStructs:  make(map[string]ApiStruct),
+	}
+
+	for _, decl := range nodes.Decls {
+		switch decl.(type) {
+		case *ast.FuncDecl:
+			p.ParseFunc(result, decl)
+		case *ast.GenDecl:
+			for _, t := range decl.(*ast.GenDecl).Specs {
+				if tt, ok := t.(*ast.TypeSpec); ok {
+					if ttt, ok := tt.Type.(*ast.StructType); ok {
+						p.ParseStruct(result, ttt)
+					}
+				}
+			}
+		}
+	}
+	return result, nil
 }
 
 func NewCodeGenerator(parsedFile *ParsedFile, out *os.File) *CodeGenerator {
