@@ -4,10 +4,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 )
+
+const defaultLimit int = 5
 
 type DbExplorer struct {
 	db     *sql.DB
@@ -74,6 +77,60 @@ func (e *DbExplorer) CreateNewRequest(r *http.Request) (*Request, error) {
 	return ans, nil
 }
 
+type BodyRecord struct {
+	Data []byte
+}
+
+// придумать структуры возвращаемых значений для каждого запроса
+func (req *Request) GetData() (interface{}, error) {
+	data, err := io.ReadAll(req.Req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading request body: %v", err)
+	}
+	var record BodyRecord
+	json.Unmarshal(data, &record)
+	return record, nil
+}
+
+func (req *Request) GetLimitOffset() (int, int) {
+	query := req.Req.URL.Query()
+	var (
+		limit, offset int
+		err           error
+	)
+	if strLimit := query.Get("limit"); strLimit != "" {
+		limit, err = strconv.Atoi(strLimit)
+		if err != nil {
+			limit = defaultLimit
+		}
+	}
+
+	if strOffset := query.Get("offset"); strOffset != "" {
+		offset, _ = strconv.Atoi(strOffset)
+	}
+	return limit, offset
+}
+
+func (e *DbExplorer) HandlePostDataTable(t Table, id int, data interface{}) (interface{}, error) {
+	return nil, nil
+}
+
+func (e *DbExplorer) HandleGetTables() (interface{}, error) {
+	return nil, nil
+}
+
+func (e *DbExplorer) HandleLimitOffset(t Table, limit int, offset int) (interface{}, error) {
+	return nil, nil
+}
+
+func (e *DbExplorer) HandlePutData(t Table, data interface{}) (interface{}, error) {
+	return nil, nil
+}
+
+func (e *DbExplorer) HandleDeletePost(t Table, id int) (interface{}, error) {
+	return nil, nil
+}
+
 func (e *DbExplorer) HandleRequest(r *http.Request) (interface{}, error) {
 	request, err := e.CreateNewRequest(r)
 	if err != nil {
@@ -87,7 +144,7 @@ func (e *DbExplorer) HandleRequest(r *http.Request) (interface{}, error) {
 				return nil, err_
 			}
 
-			return e.HandlePostDataTable(request.Table, request.RequestID, data)
+			return e.HandlePostDataTable(*request.Table, request.RequestID, data)
 		}
 	case http.MethodGet:
 		if request.Table == nil {
@@ -95,11 +152,11 @@ func (e *DbExplorer) HandleRequest(r *http.Request) (interface{}, error) {
 		}
 		if request.RequestID == -1 {
 			limit, offset := request.GetLimitOffset()
-			return e.HandleLimitOffset(request.Table, limit, offset)
+			return e.HandleLimitOffset(*request.Table, limit, offset)
 		}
 	case http.MethodDelete:
 		if request.Table != nil && request.RequestID != -1 {
-			return e.HandleDeletePost(request.Table, request.RequestID)
+			return e.HandleDeletePost(*request.Table, request.RequestID)
 		}
 	case http.MethodPut:
 		if request.Table != nil {
@@ -108,7 +165,7 @@ func (e *DbExplorer) HandleRequest(r *http.Request) (interface{}, error) {
 				return nil, err_
 			}
 
-			return e.HandlePutData(request.Table, data)
+			return e.HandlePutData(*request.Table, data)
 		}
 	}
 	return nil, ResponseError{"unknown method", http.StatusMethodNotAllowed}
