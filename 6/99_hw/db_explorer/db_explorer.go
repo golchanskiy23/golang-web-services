@@ -15,10 +15,23 @@ type DbExplorer struct {
 }
 
 type Response struct {
-	Data interface{} `json:"data"`
+	Data interface{}
 }
 
 type Table struct {
+	TableColumns []TableColumn
+}
+
+type TableColumn struct {
+	Field      string
+	Type       ColumnFiller
+	Collation  interface{}
+	Null       bool
+	Key        string
+	Default    interface{}
+	Extra      string
+	Privileges string
+	Comment    string
 }
 
 type Request struct {
@@ -28,12 +41,12 @@ type Request struct {
 }
 
 type ResponseError struct {
-	ErrName string `json:"error"`
-	Code    int    `json:"code"`
+	ErrName string
+	Code    int
 }
 
-func (rerror ResponseError) Error() string {
-	return rerror.ErrName
+func (r ResponseError) Error() string {
+	return r.ErrName
 }
 
 func (e *DbExplorer) CreateNewRequest(r *http.Request) (*Request, error) {
@@ -47,7 +60,7 @@ func (e *DbExplorer) CreateNewRequest(r *http.Request) (*Request, error) {
 		if t, ok := e.Tables[seps[0]]; ok {
 			ans.Table = &t
 		} else {
-			return nil, ResponseError{"unknown table", http.StatusNotFound}
+			return nil, ResponseError{"unknown table", http.StatusInternalServerError}
 		}
 	}
 
@@ -55,7 +68,7 @@ func (e *DbExplorer) CreateNewRequest(r *http.Request) (*Request, error) {
 		if id, err := strconv.Atoi(seps[1]); err == nil {
 			ans.RequestID = id
 		} else {
-			return nil, ResponseError{"unknown id", http.StatusNotFound}
+			return nil, ResponseError{"unknown id", http.StatusInternalServerError}
 		}
 	}
 	return ans, nil
@@ -125,4 +138,102 @@ func NewDbExplorer(db *sql.DB) (*DbExplorer, error) {
 		return nil, fmt.Errorf("failed to create DbExplorer: %s", err)
 	}
 	return &DbExplorer{db: db, Tables: tables}, nil
+}
+
+func (e *DbExplorer) GetTablesNames() ([]string, error) {
+	tables, err := e.db.Query("SHOW TABLES")
+	if err != nil {
+		return nil, err
+	}
+	defer tables.Close()
+	tablesNames := make([]string, 0)
+	var s string
+	for tables.Next() {
+		tables.Scan(&s)
+		tablesNames = append(tablesNames, s)
+	}
+	return tablesNames, nil
+}
+
+type ColumnFiller interface {
+	NewFiller() interface{}
+}
+
+type IntColumn struct {
+	Flag bool
+}
+
+func (c IntColumn) NewFiller() interface{} {
+	if c.Flag {
+		return new(*int64)
+	}
+	return new(int64)
+}
+
+type StringColumn struct {
+	Flag bool
+}
+
+func (c StringColumn) NewFiller() interface{} {
+	if c.Flag {
+		return new(*string)
+	}
+	return new(string)
+}
+
+func (e *DbExplorer) GetTableColumns(name string) ([]TableColumn, error) {
+	columns, err := e.db.Query(fmt.Sprintf("SHOW COLUMNS FROM %s", name))
+	if err != nil {
+		return nil, fmt.Errorf("error in the sqlQuery executing: %s", err)
+	}
+	defer columns.Close()
+	var (
+		colType_ string
+		colNull  string
+		isNull   bool
+	)
+	colSlice := make([]TableColumn, 0)
+	for columns.Next() {
+		col := TableColumn{}
+		columns.Scan(
+			&col.Field,
+			&colType_,
+			&col.Collation,
+			&colNull,
+			&col.Key,
+			&col.Default,
+			&col.Extra,
+			&col.Privileges,
+			&col.Comment,
+		)
+		isNull = colNull == "YES"
+		if strings.Contains(colType_, "int") {
+			col.Type = IntColumn{isNull}
+		} else {
+			col.Type = StringColumn{isNull}
+		}
+		colSlice = append(colSlice, col)
+	}
+	return colSlice, nil
+}
+
+func (e *DbExplorer) GetTables() (map[string]Table, error) {
+	names, err := e.GetTablesNames()
+	if err != nil {
+		return nil, fmt.Errorf("error in the receiving of all tables: %s", err)
+	}
+
+	resultMap := map[string]Table{}
+	for _, name := range names {
+		columns, err_ := e.GetTableColumns(name)
+		if err_ != nil {
+			return nil, fmt.Errorf("error in the receiving of table's columns: %s", err)
+		}
+		currTable := Table{
+			TableColumns: columns,
+		}
+		resultMap[name] = currTable
+	}
+
+	return resultMap, nil
 }
