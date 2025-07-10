@@ -1,4 +1,4 @@
-package __
+package main
 
 func main() {
 	println("usage: make test")
